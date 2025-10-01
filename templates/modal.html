@@ -83,56 +83,22 @@
       }, 150); 
   }
 
-  async function addNewsEntry() {
-    await fetch("{% url 'main:add_news_entry_ajax' %}", {
-      method: "POST",
-      body: new FormData(document.querySelector('#newsForm')),
-    })
-
-    document.getElementById("newsForm").reset();
-    hideModal();
-      
-    // Show toast notification
-    showToast('News added successfully!', '', 'success');
-
-    // Dispatch custom event to notify main.html about new data
-    document.dispatchEvent(new CustomEvent('newsAdded'));
-
-    return false;
-  }
 
   document.getElementById("newsForm").addEventListener("submit", function(e) {
     e.preventDefault();
     addNewsEntry();
 })
 
-</script>
+function showModal() {
+    const modal = document.getElementById('crudModal');
+    const modalContent = document.getElementById('crudModalContent');
 
-<script>
-  <script>
-  function showModal() {
-      const modal = document.getElementById('crudModal');
-      const modalContent = document.getElementById('crudModalContent');
-
-      modal.classList.remove('hidden'); 
-      setTimeout(() => {
-        modalContent.classList.remove('opacity-0', 'scale-95');
-        modalContent.classList.add('opacity-100', 'scale-100');
-      }, 50); 
-  }
-
-  function hideModal() {
-      const modal = document.getElementById('crudModal');
-      const modalContent = document.getElementById('crudModalContent');
-
-      modalContent.classList.remove('opacity-100', 'scale-100');
-      modalContent.classList.add('opacity-0', 'scale-95');
-
-      setTimeout(() => {
-        modal.classList.add('hidden');
-      }, 150); 
-  }
-</script>
+    modal.classList.remove('hidden'); 
+    setTimeout(() => {
+      modalContent.classList.remove('opacity-0', 'scale-95');
+      modalContent.classList.add('opacity-100', 'scale-100');
+    }, 50); 
+}
 
   async function addNewsEntry() {
     await fetch("{% url 'main:add_news_entry_ajax' %}", {
