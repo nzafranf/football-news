@@ -1,24 +1,20 @@
-import datetime
-from django.http import HttpResponseRedirect
-from django.urls import reverse
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from django.contrib.auth import authenticate, login
-from django.contrib.auth.forms import UserCreationForm
-from django.contrib import messages
 from django.shortcuts import render, redirect, get_object_or_404
 from main.forms import NewsForm
 from main.models import News
 from django.http import HttpResponse
 from django.core import serializers
 
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.utils.html import strip_tags
+from django.contrib.auth.models import User
+import json
+import requests
+from urllib.parse import unquote
 
-@login_required(login_url='/login')
+@login_required(login_url='/auth/login')
 def show_main(request):
     filter_type = request.GET.get("filter", "all")  # default 'all'
 
@@ -52,7 +48,7 @@ def create_news(request):
 
     return render(request, "create_news.html", context)
 
-@login_required(login_url='/login')
+@login_required(login_url='/auth/login')
 def show_news(request, id):
     news = get_object_or_404(News, pk=id)
     news.increment_views()
@@ -89,39 +85,6 @@ def show_json_by_id(request, news_id):
    except News.DoesNotExist:
        return HttpResponse(status=404)
    
-def register(request):
-    form = UserCreationForm()
-
-    if request.method == "POST":
-        form = UserCreationForm(request.POST)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Your account has been successfully created!')
-            return redirect('main:login')
-    context = {'form':form}
-    return render(request, 'register.html', context)
-
-def login_user(request):
-   if request.method == 'POST':
-      form = AuthenticationForm(data=request.POST)
-
-      if form.is_valid():
-        user = form.get_user()
-        login(request, user)
-        response = HttpResponseRedirect(reverse("main:show_main"))
-        response.set_cookie('last_login', str(datetime.datetime.now()))
-        return response
-
-   else:
-      form = AuthenticationForm(request)
-   context = {'form': form}
-   return render(request, 'login.html', context)
-
-def logout_user(request):
-    logout(request)
-    response = HttpResponseRedirect(reverse('main:login'))
-    response.delete_cookie('last_login')
-    return response
 
 def edit_news(request, id):
     news = get_object_or_404(News, pk=id)
@@ -182,15 +145,43 @@ def show_json_by_id(request, news_id):
 @csrf_exempt
 @require_POST
 def add_news_entry_ajax(request):
-    title = strip_tags(request.POST.get("title")) # strip HTML tags!
-    content = strip_tags(request.POST.get("content")) # strip HTML tags!
-    category = request.POST.get("category")
-    thumbnail = request.POST.get("thumbnail")
-    is_featured = request.POST.get("is_featured") == 'on'  # checkbox handling
-    user = request.user
+    try:
+        # Try to parse JSON first (for Flutter API requests)
+        data = json.loads(request.body)
+        title = strip_tags(data.get("title", ""))
+        content = strip_tags(data.get("content", ""))
+        category = data.get("category", "")
+        thumbnail = data.get("thumbnail", "")
+        is_featured = data.get("is_featured", False)
+        user_id = data.get("user_id")  # Accept user_id from Flutter
+    except json.JSONDecodeError:
+        # Fallback to form data (for web requests)
+        title = strip_tags(request.POST.get("title", ""))
+        content = strip_tags(request.POST.get("content", ""))
+        category = request.POST.get("category", "")
+        thumbnail = request.POST.get("thumbnail", "")
+        is_featured = request.POST.get("is_featured") == 'on'
+        user_id = None
+
+    # Get user - prefer authenticated user, fallback to user_id from payload
+    if request.user.is_authenticated:
+        user = request.user
+    elif user_id:
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return JsonResponse({
+                "status": False,
+                "message": "Invalid user ID."
+            }, status=400)
+    else:
+        return JsonResponse({
+            "status": False,
+            "message": "Authentication required."
+        }, status=401)
 
     new_news = News(
-        title=title, 
+        title=title,
         content=content,
         category=category,
         thumbnail=thumbnail,
@@ -199,4 +190,44 @@ def add_news_entry_ajax(request):
     )
     new_news.save()
 
-    return HttpResponse(b"CREATED", status=201)
+    return JsonResponse({
+        "status": True,
+        "message": "News created successfully!",
+        "news_id": str(new_news.id)
+    }, status=201)
+
+@csrf_exempt
+def proxy_image(request):
+    """Proxy external images to avoid CORS issues"""
+    image_url = request.GET.get('url')
+    if not image_url:
+        return HttpResponse('No URL provided', status=400)
+
+    try:
+        # URL decode the image URL
+        decoded_url = unquote(image_url)
+        print(f"Proxying image: {decoded_url}")
+
+        # Fetch image from external source
+        response = requests.get(decoded_url, timeout=10, stream=True)
+        response.raise_for_status()
+
+        # Return the image with proper content type and CORS headers
+        django_response = HttpResponse(
+            response.content,
+            content_type=response.headers.get('Content-Type', 'image/jpeg')
+        )
+
+        # Add CORS headers
+        django_response['Access-Control-Allow-Origin'] = '*'
+        django_response['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        django_response['Access-Control-Allow-Headers'] = '*'
+
+        return django_response
+
+    except requests.RequestException as e:
+        print(f"Error fetching image {decoded_url}: {e}")
+        return HttpResponse(f'Error fetching image: {str(e)}', status=500)
+    except Exception as e:
+        print(f"Unexpected error proxying image: {e}")
+        return HttpResponse(f'Unexpected error: {str(e)}', status=500)

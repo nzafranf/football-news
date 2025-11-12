@@ -117,8 +117,14 @@
 </div>
 {% endblock content %}
 
+{% if registration_success %}
+<script>
+ showToast('Registration Successful', 'Your account has been created successfully!', 'success');
+</script>
+{% endif %}
+
 <button
-  onclick="showToast('Sample Title', 'This is a sample message for the toast notification.')"
+ onclick="showToast('Sample Title', 'This is a sample message for the toast notification.')"
 >
-  Click to Show Toast
+ Click to Show Toast
 </button>
